@@ -1,0 +1,13 @@
+https://bicyclecards.com/how-to-play/war/
+Start with 52 card deck 
+spilt into 2 equal halves for 2 players
+each player grabs a card from the deck and displays that card
+the card with the higher ranking wins
+the player that had the higher ranking card adds all displayed cards to their deck
+if displayed card is of equal value, then war occurs
+war involves each player removing a subset of cards from the deck (2-5)
+from this subset, each player draws another card
+the player with the higher ranking card, takes the subset of cards and the displayed cards of the losing player
+this cycle continues until there are no cards left for one player
+that player will be the loser
+

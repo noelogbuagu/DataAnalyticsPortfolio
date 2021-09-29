@@ -1,0 +1,7 @@
+Modifications
+
+create a list of available cars
+separate the cars by brand (Toyota, checrolet e.t.c)
+show the cars to the customer to pick
+can the user pick different types of cars?
+ask how many they want to return
