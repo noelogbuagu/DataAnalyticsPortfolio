@@ -1,4 +1,4 @@
-# DataAnalyticsPortfolio
+# Data Analytics Portfolio
 
 A collection of selected data analytics projects to demonstrate skill sets, knowledge, and what I find interesting on my data analytics journey
 
