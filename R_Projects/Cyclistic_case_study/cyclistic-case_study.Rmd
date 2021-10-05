@@ -1,0 +1,596 @@
+---
+title: 'Case Study: Cyclistic'
+author: "Noel Obinna Ogbuagu"
+date: "10/2/2021"
+output: 
+html_document:
+    number_sections: true
+    toc: true
+    fig_width: 7
+    fig_height: 4.5
+    theme: readable
+    highlight: tango
+---
+
+# Introduction
+
+This is my first stab at a case study. I have chosen to work with the Cyclistic dataset after completing the Googlr professional certificate. I will also focus on doing some illustrative data visualizations along the way. I am new to data analysis and hoping to learn a lot, so feedback is very welcome! 
+
+There are four parts to my script as follows:
+
+* Preparing the Environment
+* Data cleaning
+* Data analysis
+* Data visualization
+
+# Preparing the Environment
+
+The first thing done was to install all the necessary packages and libraries for data cleaning, analysis and visualization. To do this, the `tidyverse`, `here`, `skimr`, `janitor`, `dplyr`, `lubridate`, `geodist`, `ggplot2` and `ggmap` packages were installed. Also their, libraries were loaded as well.
+
+```{r install and load packages, message=FALSE, warning=FALSE}
+#Load packages
+library("tidyverse") # General analysis
+library("here") # data cleaning
+library("skimr") # data cleaning
+library("janitor") # data cleaning
+library("dplyr") #  data manipulation
+library("lubridate") # dates
+library("geodist") # distances
+library("ggmap") # maps
+library("ggplot2") # visualizations
+library(scales) # visualizations
+```
+
+Now that the packages are loaded, let's read the data in and take a peek.
+
+```{r load, combine and check data, message=FALSE, warning=FALSE}
+# Load the data
+cyclistic_tripdata_2020_09 <- read_csv("data_sources/202009-divvy-tripdata.csv")
+cyclistic_tripdata_2020_10 <- read_csv("data_sources/202010-divvy-tripdata.csv")
+cyclistic_tripdata_2020_11 <- read_csv("data_sources/202011-divvy-tripdata.csv")
+cyclistic_tripdata_2020_12 <- read_csv("data_sources/202012-divvy-tripdata.csv")
+cyclistic_tripdata_2021_01 <- read_csv("data_sources/202101-divvy-tripdata.csv")
+cyclistic_tripdata_2021_02 <- read_csv("data_sources/202102-divvy-tripdata.csv")
+cyclistic_tripdata_2021_03 <- read_csv("data_sources/202103-divvy-tripdata.csv")
+cyclistic_tripdata_2021_04 <- read_csv("data_sources/202104-divvy-tripdata.csv")
+cyclistic_tripdata_2021_05 <- read_csv("data_sources/202105-divvy-tripdata.csv")
+cyclistic_tripdata_2021_06 <- read_csv("data_sources/202106-divvy-tripdata.csv")
+cyclistic_tripdata_2021_07 <- read_csv("data_sources/202107-divvy-tripdata.csv")
+cyclistic_tripdata_2021_08 <- read_csv("data_sources/202108-divvy-tripdata.csv")
+
+# combine data
+bike_rides <- rbind(
+  cyclistic_tripdata_2020_09, cyclistic_tripdata_2020_10,
+  cyclistic_tripdata_2020_11, cyclistic_tripdata_2020_12, cyclistic_tripdata_2021_01,
+  cyclistic_tripdata_2021_02, cyclistic_tripdata_2021_03, cyclistic_tripdata_2021_04,
+  cyclistic_tripdata_2021_05, cyclistic_tripdata_2021_06, cyclistic_tripdata_2021_07,
+  cyclistic_tripdata_2021_08
+)
+
+# check data
+bike_rides %>% 
+  skim_without_charts()
+```
+# Data Cleaning
+
+Now that we have an overview of the data, we can proceed to perform some data cleaning. Also, some variables are renamed to improve comprehensiveness and some new variables are added to the data frame for analysis. The `ride_length` and `day_of_week` variables are created to improve analysis.
+
+```{r message=FALSE, warning=FALSE}
+bike_rides <- bike_rides%>%
+  clean_names() %>% 
+  remove_empty(which = c("rows","cols")) %>% 
+  distinct() %>% 
+  rename(rider_type = member_casual) %>% 
+  rename(bike_type = rideable_type) %>% 
+  mutate(ride_length = difftime(ended_at,started_at), #, units = "secs"
+         day_of_week = weekdays(started_at)
+         )
+```
+
+To perform ride duration calculations, `ride_length` has to be converted to a numeric variable. 
+
+```{r message=FALSE, warning=FALSE}
+bike_rides$ride_length <- as.numeric(as.character(bike_rides$ride_length))
+is.numeric(bike_rides$ride_length)
+```
+
+Next, separating the `started_at` and `ended_at` variables. 
+
+```{r}
+bike_rides <- bike_rides %>% 
+  separate(started_at, into = c('start_date','start_time'), sep = ' ') %>%
+  separate(ended_at, into = c('end_date','end_time'), sep = ' ')
+```
+
+Just like `ride_length`, `start_date` and `end_date` need to be converted from a character to date format. Also, `start_time` and `end_time` are converted from character to period and the variable `start_hour` is created.
+
+```{r message=FALSE, warning=FALSE}
+# convert chr to date
+bike_rides$start_date<- ymd(bike_rides$start_date)
+bike_rides$end_date<- ymd(bike_rides$end_date)
+
+# convert chr to period
+bike_rides$start_time <- hms(bike_rides$start_time)
+bike_rides$end_time <- hms(bike_rides$end_time)
+
+# get hour from period
+bike_rides$start_hour <- hour(bike_rides$start_time)
+```
+
+The `day`, `month` and `year` should also be added to the data.frame for a more precise analysis.
+
+```{r message=FALSE, warning=FALSE}
+#Get day, month and year of the rides
+bike_rides<-bike_rides %>% 
+  mutate(
+    day = day(start_date),
+    month = month(start_date),
+    year = year(start_date)
+  )
+```
+
+The same process will be repeated to add `season` and `ride ristance`. The latter is converted to miles to form `ride_dist_mile`. `bike_rides` is then filtered for only positive distances and the initial distance variable 'ride_distance` is removed from the data.frame.
+
+```{r}
+# Add season to data frame
+bike_rides<-bike_rides %>% 
+  mutate(
+    season = ifelse(
+      month %in% 9:11, "Fall",
+      ifelse(month %in% 1:2, "Winter",
+             ifelse(month %in% 12, "Winter",
+                    ifelse(month %in% 3:5, "Spring",
+                           "Summer")
+             )
+      )
+         )
+    )
+
+# Add distance covered during rides in miles
+bike_rides<- bike_rides %>% 
+  mutate(ride_distance = geodist_vec(start_lng,
+                              start_lat,
+                              end_lng,
+                              end_lat,
+                              paired = TRUE,
+                              sequential = TRUE, 
+                              measure = "cheap"),
+  ride_dist_mile = ride_distance/1609,
+  
+  ) %>% 
+  filter(ride_dist_mile > 0) %>% 
+  select(-ride_distance)
+```
+
+Not quite done yet. It's frustrating I know. But trust me, all that's left is converting `ride_length` from seconds to minutes, making an abbreviated month column and filtering out the data for rides with positive times.
+
+```{r}
+
+#Make a minutes column for ride length
+bike_rides$ride_length_m <-
+  minute(seconds_to_period(bike_rides$ride_length))
+
+# Make variable abbreviated month variable
+bike_rides$month_abb <- month.abb[bike_rides$month]
+
+#remove rows with negative ride_length
+bike_rides<-bike_rides %>% 
+  
+  filter(ride_length_m > 0) %>% 
+  select(-ride_length)
+```
+
+Now cleaning is done, time to head into data analysis. 
+
+# Data Analysis
+
+The first thing is to perform some descriptive analysis to get a feel of the data. Lets' take a look at `ride length`.
+
+```{r message=FALSE, warning=FALSE}
+mean(bike_rides$ride_length_m) # straight average 
+median(bike_rides$ride_length_m) # midpoint number in the ascending array of ride lengths
+max(bike_rides$ride_length_m) # longest ride
+min(bike_rides$ride_length_m) # shortest ride
+```
+
+On average, a bike ride lasts a little over 15 minutes. Let's examine `ride distance`.
+
+```{r}
+mean(bike_rides$ride_dist_mile) # straight average 
+median(bike_rides$ride_dist_mile) # midpoint number in the ascending array of ride distances
+max(bike_rides$ride_dist_mile) # farthest rides
+min(bike_rides$ride_dist_mile) # closest rides
+```
+
+Interestingly, the average distance covered during a bike ride is about a mile and a half. 
+
+Next, looking at rider behavior based on weekdays, months and seasons.However, they all have to be put in the right order first.
+
+```{r}
+# Order days of the week
+bike_rides$day_of_week <- ordered(bike_rides$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+
+# Order months
+bike_rides$month_abb <- ordered(bike_rides$month_abb, levels=c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+
+# Order seasons
+bike_rides$season <- ordered(bike_rides$season, levels=c("Spring", "Summer", "Fall", "Winter"))
+```
+
+First, Lets look at user activity.
+
+```{r message=FALSE, warning=FALSE}
+bike_rides %>% 
+  group_by(rider_type) %>% 
+  summarise(number_rides = n(), average_ride_length = mean(ride_length_m),average_ride_distance = mean(ride_dist_mile)) %>% 
+  arrange(desc(number_rides))
+```
+
+Annual members go on more bike rides that casual riders but the latter spend more time during rides and ride longer distances.Now that's done, let's count the number of rides by the different user types and weekdays.
+
+```{r message=FALSE, warning=FALSE}
+#Count the number of rides by weekday and by member
+bike_rides %>% 
+  group_by(rider_type, day_of_week) %>% 
+  summarise(number_rides = n(), average_ride_length = mean(ride_length_m), 
+            average_ride_distance =mean(ride_dist_mile)) %>% 
+  arrange(desc(number_rides))
+```
+
+It's apparent that weekends are the busiest part of the week, especially for `casual riders`. The longest and farthest bike rides also happen on the weekends. Let's see how this pans out for `time of day`.
+
+```{r}
+#Count the number of rides and average ride length at every start hour
+bike_rides %>% 
+  group_by(start_hour) %>% 
+  summarise(number_rides = n(), average_ride_length = mean(ride_length_m), 
+            average_ride_distance = mean(ride_dist_mile)) %>% 
+  arrange(desc(number_rides))
+```
+Woah! seems peak rush hour happens from `4:00 pm to 6:00pm` but the longest trips happen a bit earlier in the day. Finally, let's see how seasons affect rider activity.
+
+```{r}
+bike_rides %>% 
+  group_by(rider_type, season) %>% 
+  summarise(number_rides = n(), average_ride_length = mean(ride_length_m),
+            average_ride_distance = mean(ride_dist_mile)) %>% 
+  arrange(desc(number_rides))
+
+```
+
+`Annual member` are somewhat  active throughout the year but it's clear both users are most active during `summer`. `Winter` is the least active season for both users- especially `casual riders`.
+
+That's the end of the descriptive analysis. Time for the best part - Visualizations.
+
+## Data Visualizations
+
+I decided to approach this on `three levels`. First, we'll look at visualizations around the `number of rides`, second `ride duration` and last, `ride location`. But before all that, I want to make values to represent the time period of the data used. These values will be used in the plots.
+
+```{r}
+mindate <- min(bike_rides$start_date)
+maxdate <- max(bike_rides$start_date)
+mindate
+maxdate
+```
+
+
+## Number of Rides
+
+We can start by looking at the total number of bike rides. For example, the total number of rides by users and bike type.
+
+```{r message=FALSE, warning=FALSE}
+bike_rides %>% 
+  group_by(bike_type,rider_type) %>% 
+  summarise(number_of_rides = n()) %>% 
+  ggplot(mapping = aes(x = bike_type, y = number_of_rides, fill = rider_type))+
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels = comma)+
+  labs(title="Number of Rides for Users by Bike Type",
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+       x = "Bike Type",
+       y = "Number of Rides")
+```
+`Classic bikes` seem to be the most popular choice followed by `electric bikes` and then `docked bikes`. Let's see how activity varies over the time of the day.
+
+```{r}
+# Rider Type by Time of Day
+bike_rides %>%
+  filter(rider_type %in% c('casual','member')) %>%
+  count(rider_type, start_hour) %>%
+  ggplot(aes(x=start_hour,y=n,color=rider_type,group=rider_type)) + 
+  geom_point() + 
+  geom_line(linetype='dotted')+
+  scale_y_continuous(labels = comma)+
+  theme(axis.text.x  = element_text(size=8,angle=90)) + 
+  labs(title="Number of Rides for Users by Time of Day", 
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+       x = "Time of Day", 
+       y = "Number of Rides")
+```
+
+`Casual member` are usually active `late at night` and in the `afternon` while `annual members` are active in the `morning` and in the `afternoon`. `Rush hour` is from `4 to 6 pm`. What about activity during the week?
+
+```{r message=FALSE, warning=FALSE}
+#Rider Type by Weekday
+bike_rides %>%
+  group_by(day, rider_type) %>%
+  summarize(number_of_rides = n(),
+            wday = day_of_week[1]) %>%
+  group_by(wday, rider_type) %>%
+  summarize(average_num_rides=mean(number_of_rides)) %>%
+  ggplot(aes(x=wday,y=average_num_rides, fill = rider_type)) + 
+  geom_bar(stat='identity', position = "dodge")+
+  scale_y_continuous(labels = comma)+
+  labs(title=" Average Number of Rides for Users by Weekday", 
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+       x = "Day of Week", 
+       y = "Average Number of Rides")
+
+```
+
+The average number of rides was used to cater of the difference in the number of each day of the week.
+
+`Sunday` is the busiest day of the week for both `annual member` and `casual riders` but generally the `mid-week` is busier than the `weekend`. But how does activity vary throughout the entire day, every day of the week?
+
+```{r message=FALSE, warning=FALSE}
+#number of rides for users by time of day for each day of week
+bike_rides %>%
+  filter(rider_type %in% c('casual','member')) %>%
+  group_by(day_of_week, rider_type, start_hour) %>%
+  summarize(number_of_rides = n(),
+            wday = day_of_week[1]) %>%
+  group_by(wday, rider_type, start_hour) %>%
+  summarize(average_num_rides=mean(number_of_rides)) %>%
+  ggplot(aes(x=start_hour,y=average_num_rides, group = rider_type,
+             color = rider_type, linetype = rider_type, shape = rider_type)) + 
+  geom_point(size=2) + 
+  geom_line(size=0.5) + 
+  facet_wrap(~wday,nrow=1)+
+  scale_y_continuous(labels = comma)+
+  labs(title=" Average Number of Rides for Users by Time of Day and Weekday", 
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+       x = "Time of Day", 
+       y = "Average Number of Rides")+
+  theme(axis.text.x  = element_text(size=8,angle=90),
+        legend.position="none")
+```
+The `rush hour` trend and the pattern of `annual member` and `casual rider` activity seems to be consistent throughout the `mid-week`. On `weekends` it appears both users have the same pattern of activity. How does this translate over different seasons? 
+
+```{r message=FALSE, warning=FALSE}
+#total number of rides by season
+bike_rides %>%
+  filter(rider_type %in% c('casual','member')) %>%
+  count(rider_type, season) %>%
+  ggplot(aes(x=season,y=n,fill=rider_type,group=rider_type)) + 
+  geom_col(position = "dodge") + 
+  scale_y_continuous(labels = comma)+
+  labs(title="Number of Rides for Users by Season", 
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+       x = "Season", 
+       y = "Number of Rides")
+
+```
+
+As mentioned earlier, `summer` is the most active season and it's the only season `casual riders` are more active that `annual members`. However, `casual riders` are barely even active during the winter. 
+
+## Ride Duration
+
+First, let's determine the distribution of the `ride lengths`. A `histogram` would be best suited for this.
+
+```{r message=FALSE, warning=FALSE}
+
+par(mar = c(4, 4, .1, .1))
+
+#Histogram to see distribution of ride length
+bike_rides %>%
+  ggplot(aes(x=ride_length_m))+ 
+  geom_histogram()+
+  scale_y_continuous(labels = comma)+
+  labs(
+    title="Distribution of Ride Duration", 
+    subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+    x = "Ride Duration (Mins.)", 
+    y = "Number of Rides")
+```
+
+This is a skewed distribution with a long right tail. Most trips are less than 30 minutes. Do the two users have similar duration distributions? 
+
+```{r message=FALSE, warning=FALSE}
+#Density plot
+bike_rides %>%
+  ggplot(aes(x=ride_length_m, fill = rider_type))+ 
+  geom_density(alpha = 0.5)+
+  scale_y_continuous(labels = comma)+
+  labs(
+    title="Distribution of Ride Duration for Users", 
+    subtitle=paste0("Data from: ", mindate, " to ", maxdate), 
+    x = "Ride Duration (Mins.)", 
+    y = "Number of Rides") 
+```
+
+These distributions are different - the `casual rider` distribution is much less skewed with more weight on longer trips. Also, we clearly see that `casual riders` take longer trips than `annual members`.
+
+Since this is a skewed distribution with a long right tail, if we want to characterize the “typical” ride duration we should probably not use the average. In the following we will focus on the median ride duration.
+
+```{r message=FALSE, warning=FALSE}
+#Median Trip duration by day of month
+bike_rides %>%
+  group_by(day) %>%
+  summarize(med.duration=median(ride_length_m),
+            weekday=day_of_week[1]) %>%
+  ggplot(aes(x=day,y=med.duration,group=1)) + 
+  geom_point(aes(color=weekday),size=5) + 
+  geom_line(linetype='dotted')+
+  labs(x='Day of Month',
+       y='Median Ride Duration (Mins.)',
+       title='Median Ride Duration by Day of Month',
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate)
+       )
+```
+
+In terms of duration, the longest trips happen on `weekends`, while the shortest happen `mid-week`. 
+
+Now let’s look at median trip duration by time of day for each weekday and for each type of user.
+
+```{r}
+bike_rides %>%
+  filter(rider_type %in% c('casual','member')) %>%
+  group_by(day_of_week,start_hour,rider_type) %>%
+  summarize(med.duration=median(ride_length_m)) %>%
+  ggplot(aes(x=start_hour,y=med.duration,group=rider_type,
+             color=rider_type,linetype=rider_type,shape=rider_type)) + 
+  geom_point(size=2) + 
+  geom_line(size=0.5) + 
+  facet_wrap(~day_of_week,nrow=1) + 
+  labs(x='Time of Day',
+       y='Median Ride Duration (Mins.)',
+       title='Ride Duration for Users by Time of Day and Weekday',
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate)
+  )+
+  scale_x_discrete(breaks=c(0,6,12,18))
+```
+
+It's clear that throughout the week `casual riders` take longer bike rides - especially on `weekends`. Let's take a look at how seasons play a part on `ride duration`.
+
+```{r message=FALSE,  warning=FALSE}
+#Rider type by season
+bike_rides %>% 
+  group_by(season,rider_type) %>% 
+  filter(ride_length_m > 0) %>% 
+  summarise(med.duration=median(ride_length_m)) %>% 
+  ggplot(mapping = aes(x = season, y = med.duration, fill = rider_type))+
+  geom_col(position = "dodge")+
+  scale_y_continuous(labels = comma)+
+  labs(title="Ride Duration for Users by Season",
+       subtitle=paste0("Data from: ", mindate, " to ", maxdate),
+       x = "Season", 
+       y = "Average Ride Duration (Mins.)")
+```
+
+It appears `ride duration` is fairly consistent throughout the year for both `casual riders` and `annual members`. However, bike rides are shorter during `winter` for both users.
+
+## Ride Location
+
+This was actually the trickiest and most interesting part of the project for me mainly because I have never worked with digital maps before. It was tricky because I had to figure out how to get a `Google API` that would give me access to the `map static API` and a `geocoding API`.
+
+Now let's begin by getting the `API key` and registering it with Google.
+
+```{r}
+# Get API key
+api<- "AIzaSyAEPZ0uPNpowo4CkbpSa25yJBpSwRUVjUg"
+
+# Register API with Google
+register_google(key = api)
+```
+
+
+Now that's done, we can start by mapping the bike stations in the system. First, load the data, then extract latitude and longitude for each station (along with number of rides originating from the station). Then plot station locations:
+
+```{r message=FALSE, warning=FALSE}
+## get station info
+station.info <- bike_rides %>%
+  drop_na() %>% 
+  group_by(start_station_id) %>%
+  summarise(lat=as.numeric(start_lat[1]),
+            long=as.numeric(start_lng[1]),
+            name=start_station_name[1],
+            n.trips=n())
+
+
+## get map and plot station locations 
+chicago.map <- get_map(location= 'Chicago', 
+                       maptype='roadmap', color='bw',source='google',zoom=13)
+
+#Mapping station activity
+ggmap(chicago.map) + 
+  geom_point(data=station.info,aes(x=long,y=lat,color=n.trips),size=3,alpha=0.75)+
+  scale_colour_gradient(high="red",low='green')+ 
+  theme(axis.ticks = element_blank(),axis.text = element_blank())+
+  xlab('')+ylab('')+
+  ggtitle("Cyclistic Bike Ride Activity")
+```
+
+It appears majority of bike rides happen near the `coast`. Let's take a look at where `casual riders` and `annual members` are active.
+
+```{r message=FALSE, warning=FALSE}
+#Mapping Rider location
+rider.location<- bike_rides %>%
+  drop_na() %>% 
+  distinct() %>% 
+  filter(ride_dist_mile>0 & ride_length_m > 0) %>% 
+  select(start_station_id,start_station_name, start_lat, start_lng,rider_type)
+
+
+ggmap(chicago.map) + 
+  geom_point(data = rider.location,
+             aes(x=start_lng,y=start_lat,color=rider_type),size=.10,alpha=0.5) + 
+  theme(axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        legend.position="none")+
+  ggtitle("Rider Activity Locations")
+
+```
+
+For the most part, `annual members` and `casual riders` bike in the same areas but the former is more spread out throughout `Chicago` and rely on Cyclistic bikes `more often`. However, `casual riders` are not as spread out and are more active near the `coastal areas`.
+
+Finally let’s finish by taking the busiest station in the system (in terms of starting trips). Then visualize to where the most frequently occurring trips are.
+
+We need to find the `busiest station` first
+
+```{r message=FALSE, warning=FALSE}
+#to find busiest station
+top.station <- bike_rides %>%
+  drop_na() %>% 
+  group_by(start_station_id) %>%
+  summarise(n.trips=n(),
+            name=start_station_name[1],
+            lat=start_lat[1],
+            lon=start_lng[1]) %>%            
+  arrange(desc(n.trips)) %>%
+  slice(1)
+
+top.station
+```
+
+So the most active station is station `13022`. Now extract trips originating here and find the top 20 trips:
+
+```{r message=FALSE, warning=FALSE}
+#to find top 20 trip from busiest station
+busy.station.out <- bike_rides %>%
+  drop_na() %>% 
+  filter(start_station_id== as.numeric(top.station$start_station_id)) %>%
+  group_by(end_station_id) %>%
+  summarise(n.trips=n(),
+            name=end_station_name[1],
+            start.lat = as.numeric(start_lat[1]),
+            start.lon = as.numeric(start_lng[1]),
+            end.lat = as.numeric(end_lat[1]),
+            end.lon = as.numeric(end_lng[1])) %>%
+  arrange(desc(n.trips)) %>% 
+  slice(1:20)
+```
+
+Now plot the extracted routes:
+
+```{r message=FALSE, warning=FALSE}
+map_busiest <- get_map(location = c(lon = top.station$lon, 
+                               lat = top.station$lat), color='bw',source='google',zoom=14)
+
+
+ggmap(map_busiest) + 
+  geom_segment(data=busy.station.out,aes(x=start.lon,y=start.lat,
+                                         xend=end.lon,yend=end.lat,
+                                         color=n.trips),size=1,alpha=0.75) +
+  geom_point(data=busy.station.out,aes(x=end.lon,y=end.lat,color=n.trips), size=3,alpha=0.75) + 
+  geom_point(data=top.station, aes(x=lon,y=lat), size=4, alpha=0.5) +
+  scale_colour_gradient(high="red",low='green') + 
+  theme(axis.ticks = element_blank(),
+        axis.text = element_blank()) +
+  xlab('')+ylab('') +
+  ggtitle(paste0('Top 20 Trips starting at ', top.station$name))
+```
+
+
+# Conclusion
+
+Thank you for taking the time to read through my first exploration of a case study. I look forward to doing more. Again, I welcomes comments and suggestions!
